@@ -2,10 +2,9 @@ package stringx
 
 import (
 	"errors"
+	"github.com/tedwangl/go-util/pkg/base/lang"
 	"slices"
 	"unicode"
-
-	"github.com/tedwangl/go-util/pkg/utils/base/lang"
 )
 
 var (

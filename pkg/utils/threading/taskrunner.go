@@ -2,10 +2,9 @@ package threading
 
 import (
 	"errors"
+	"github.com/tedwangl/go-util/pkg/base/lang"
+	"github.com/tedwangl/go-util/pkg/base/rescue"
 	"sync"
-
-	"github.com/tedwangl/go-util/pkg/utils/base/lang"
-	"github.com/tedwangl/go-util/pkg/utils/base/rescue"
 )
 
 // ErrTaskRunnerBusy is the error that indicates the runner is busy.

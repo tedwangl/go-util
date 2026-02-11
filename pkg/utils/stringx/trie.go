@@ -1,10 +1,8 @@
 package stringx
 
 import (
-	"github.com/tedwangl/go-util/pkg/utils/base/lang"
+	"github.com/tedwangl/go-util/pkg/base/lang"
 )
-
-
 
 const defaultMask = '*'
 

@@ -2,9 +2,8 @@ package timex
 
 import (
 	"errors"
+	"github.com/tedwangl/go-util/pkg/base/lang"
 	"time"
-
-	"github.com/tedwangl/go-util/pkg/utils/base/lang"
 )
 
 // errTimeout indicates a timeout.

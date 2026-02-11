@@ -3,10 +3,9 @@ package threading
 import (
 	"bytes"
 	"context"
+	"github.com/tedwangl/go-util/pkg/base/rescue"
 	"runtime"
 	"strconv"
-
-	"github.com/tedwangl/go-util/pkg/utils/base/rescue"
 )
 
 // GoSafe runs the given fn using another goroutine, recovers if fn panics.

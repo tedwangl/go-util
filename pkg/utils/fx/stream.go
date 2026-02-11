@@ -1,11 +1,11 @@
 package fx
 
 import (
+	"github.com/tedwangl/go-util/pkg/base/lang"
 	"sort"
 	"sync"
 
 	"github.com/tedwangl/go-util/pkg/utils/collection"
-	"github.com/tedwangl/go-util/pkg/utils/base/lang"
 	"github.com/tedwangl/go-util/pkg/utils/threading"
 )
 

@@ -2,12 +2,12 @@ package threading
 
 import (
 	"fmt"
+	"github.com/tedwangl/go-util/pkg/base/lang"
 	"runtime"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/tedwangl/go-util/pkg/utils/base/lang"
 )
 
 func TestWorkerGroup(t *testing.T) {
