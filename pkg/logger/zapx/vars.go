@@ -1,4 +1,4 @@
-package zap
+package zapx
 
 import (
 	"errors"
@@ -44,7 +44,7 @@ const (
 )
 
 var (
-	ErrLogPathNotSet      = errors.New("log path must be set")
+	ErrLogPathNotSet        = errors.New("log path must be set")
 	ErrLogServiceNameNotSet = errors.New("log service name must be set")
 )
 
@@ -60,7 +60,7 @@ var (
 )
 
 var (
-	logLevel    uint32
+	logLevel         uint32
 	maxContentLength uint32
 )
 

@@ -1,4 +1,4 @@
-package zap
+package zapx
 
 type (
 	LogConf struct {

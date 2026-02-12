@@ -1,4 +1,4 @@
-package zap
+package zapx
 
 import (
 	"fmt"
@@ -12,45 +12,49 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-type Writer interface {
-	Close() error
-	Debug(skip int, v any, fields ...LogField)
-	Error(skip int, v any, fields ...LogField)
-	Info(skip int, v any, fields ...LogField)
-	Slow(skip int, v any, fields ...LogField)
-	Severe(skip int, v any)
-	Stack(skip int, v any)
-	Stat(skip int, v any, fields ...LogField)
-	Alert(v any)
-}
+type (
+	Writer interface {
+		Close() error
+		Debug(skip int, v any, fields ...LogField)
+		Error(skip int, v any, fields ...LogField)
+		Info(skip int, v any, fields ...LogField)
+		Slow(skip int, v any, fields ...LogField)
+		Severe(skip int, v any)
+		Stack(skip int, v any)
+		Stat(skip int, v any, fields ...LogField)
+		Alert(v any)
+	}
 
-type zapWriter struct {
-	infoLogger   *zap.Logger
-	errorLogger  *zap.Logger
-	severeLogger *zap.Logger
-	slowLogger   *zap.Logger
-	statLogger   *zap.Logger
-	stackLogger  *zap.Logger
-	alertLogger  *zap.Logger
-	sugarInfo    *zap.SugaredLogger
-	sugarError   *zap.SugaredLogger
-	sugarSevere  *zap.SugaredLogger
-	sugarSlow    *zap.SugaredLogger
-	sugarStat    *zap.SugaredLogger
-	sugarStack   *zap.SugaredLogger
-	sugarAlert   *zap.SugaredLogger
-	config       LogConf
-	stackLimiter *limitedExecutor
-}
+	zapWriter struct {
+		infoLogger   *zap.Logger
+		errorLogger  *zap.Logger
+		severeLogger *zap.Logger
+		slowLogger   *zap.Logger
+		statLogger   *zap.Logger
+		stackLogger  *zap.Logger
+		alertLogger  *zap.Logger
+		sugarInfo    *zap.SugaredLogger
+		sugarError   *zap.SugaredLogger
+		sugarSevere  *zap.SugaredLogger
+		sugarSlow    *zap.SugaredLogger
+		sugarStat    *zap.SugaredLogger
+		sugarStack   *zap.SugaredLogger
+		sugarAlert   *zap.SugaredLogger
+		config       LogConf
+		stackLimiter *limitedExecutor
+	}
 
-type atomicWriter struct {
-	writer Writer
-	lock   sync.RWMutex
-}
+	atomicWriter struct {
+		writer Writer
+		lock   sync.RWMutex
+	}
 
-type multiWriter struct {
-	writers []Writer
-}
+	multiWriter struct {
+		writers []Writer
+	}
+
+	nopWriter struct{}
+)
 
 func NewMultiWriter(writers ...Writer) Writer {
 	return &multiWriter{
@@ -353,11 +357,6 @@ func (w *zapWriter) Debug(skip int, v any, fields ...LogField) {
 		fields = append(fields, LogField{Key: "caller", Value: caller})
 	}
 
-	// 处理敏感信息
-	if s, ok := v.(Sensitive); ok {
-		v = ToObjectMarshaler(s)
-	}
-
 	zapFields := toInterfaceSlice(fields...)
 	if str, ok := v.(string); ok {
 		w.sugarInfo.Debugw(str, zapFields...)
@@ -371,11 +370,6 @@ func (w *zapWriter) Error(skip int, v any, fields ...LogField) {
 	caller := getCaller(skip)
 	if caller != "" {
 		fields = append(fields, LogField{Key: "caller", Value: caller})
-	}
-
-	// 处理敏感信息
-	if s, ok := v.(Sensitive); ok {
-		v = ToObjectMarshaler(s)
 	}
 
 	zapFields := toInterfaceSlice(fields...)
@@ -393,11 +387,6 @@ func (w *zapWriter) Info(skip int, v any, fields ...LogField) {
 		fields = append(fields, LogField{Key: "caller", Value: caller})
 	}
 
-	// 处理敏感信息
-	if s, ok := v.(Sensitive); ok {
-		v = ToObjectMarshaler(s)
-	}
-
 	zapFields := toInterfaceSlice(fields...)
 	if str, ok := v.(string); ok {
 		w.sugarInfo.Infow(str, zapFields...)
@@ -413,11 +402,6 @@ func (w *zapWriter) Slow(skip int, v any, fields ...LogField) {
 		fields = append(fields, LogField{Key: "caller", Value: caller})
 	}
 
-	// 处理敏感信息
-	if s, ok := v.(Sensitive); ok {
-		v = ToObjectMarshaler(s)
-	}
-
 	zapFields := toInterfaceSlice(fields...)
 	if str, ok := v.(string); ok {
 		w.sugarSlow.Warnw(str, zapFields...)
@@ -429,11 +413,6 @@ func (w *zapWriter) Slow(skip int, v any, fields ...LogField) {
 func (w *zapWriter) Severe(skip int, v any) {
 	// 添加调用者信息
 	caller := getCaller(skip)
-
-	// 处理敏感信息
-	if s, ok := v.(Sensitive); ok {
-		v = ToObjectMarshaler(s)
-	}
 
 	if str, ok := v.(string); ok {
 		if caller != "" {
@@ -453,11 +432,6 @@ func (w *zapWriter) Severe(skip int, v any) {
 func (w *zapWriter) Stack(skip int, v any) {
 	// 添加调用者信息
 	caller := getCaller(skip)
-
-	// 处理敏感信息
-	if s, ok := v.(Sensitive); ok {
-		v = ToObjectMarshaler(s)
-	}
 
 	logFunc := func() {
 		if str, ok := v.(string); ok {
@@ -486,11 +460,6 @@ func (w *zapWriter) Stat(skip int, v any, fields ...LogField) {
 	caller := getCaller(skip)
 	if caller != "" {
 		fields = append(fields, LogField{Key: "caller", Value: caller})
-	}
-
-	// 处理敏感信息
-	if s, ok := v.(Sensitive); ok {
-		v = ToObjectMarshaler(s)
 	}
 
 	zapFields := toInterfaceSlice(fields...)
@@ -528,8 +497,6 @@ func toInterfaceSlice(fields ...LogField) []interface{} {
 	}
 	return result
 }
-
-type nopWriter struct{}
 
 func (n nopWriter) Close() error {
 	return nil

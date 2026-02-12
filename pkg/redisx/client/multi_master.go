@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/tedwangl/go-util/pkg/redisx/config"
 )
@@ -55,6 +55,7 @@ func NewMultiMasterClient(cfg *config.MultiMasterConfig, opts *config.Config) (*
 		// 创建主节点客户端
 		masterOpts := &redis.Options{
 			Addr:         master.Addr,
+			Username:     opts.Username,
 			Password:     opts.Password,
 			DB:           opts.DB,
 			PoolSize:     opts.PoolSize / len(cfg.Masters),
@@ -73,6 +74,7 @@ func NewMultiMasterClient(cfg *config.MultiMasterConfig, opts *config.Config) (*
 		for _, slaveAddr := range master.Slaves {
 			slaveOpts := &redis.Options{
 				Addr:         slaveAddr,
+				Username:     opts.Username,
 				Password:     opts.Password,
 				DB:           opts.DB,
 				PoolSize:     opts.PoolSize / len(master.Slaves) / len(cfg.Masters),
@@ -408,7 +410,12 @@ func (c *MultiMasterClient) ZAdd(ctx context.Context, key string, members ...*re
 		// 无主节点时返回错误
 		return redis.NewIntCmd(ctx, err)
 	}
-	return master.ZAdd(ctx, key, members...)
+	// v9 API 变化：ZAdd 参数从 ...*redis.Z 改为 ...redis.Z
+	zMembers := make([]redis.Z, len(members))
+	for i, m := range members {
+		zMembers[i] = *m
+	}
+	return master.ZAdd(ctx, key, zMembers...)
 }
 
 // ZRem 删除有序集合成员（写操作，使用主节点）

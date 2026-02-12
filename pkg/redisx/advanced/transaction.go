@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 	"github.com/tedwangl/go-util/pkg/redisx/client"
 )
 
@@ -81,7 +81,7 @@ func (t *Transaction) HDel(ctx context.Context, key string, fields ...string) *r
 	return t.tx.HDel(ctx, key, fields...)
 }
 
-func (t *Transaction) HGetAll(ctx context.Context, key string) *redis.StringStringMapCmd {
+func (t *Transaction) HGetAll(ctx context.Context, key string) *redis.MapStringStringCmd {
 	return t.tx.HGetAll(ctx, key)
 }
 
@@ -102,7 +102,12 @@ func (t *Transaction) SIsMember(ctx context.Context, key string, member interfac
 }
 
 func (t *Transaction) ZAdd(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
-	return t.tx.ZAdd(ctx, key, members...)
+	// v9 API 变化：ZAdd 参数从 ...*redis.Z 改为 ...redis.Z
+	zMembers := make([]redis.Z, len(members))
+	for i, m := range members {
+		zMembers[i] = *m
+	}
+	return t.tx.ZAdd(ctx, key, zMembers...)
 }
 
 func (t *Transaction) ZRem(ctx context.Context, key string, members ...interface{}) *redis.IntCmd {
@@ -138,11 +143,14 @@ func (t *Transaction) Exec(ctx context.Context) ([]redis.Cmder, error) {
 }
 
 func (t *Transaction) Discard() error {
-	return t.tx.Discard()
+	// v9 的 Discard 不返回 error
+	t.tx.Discard()
+	return nil
 }
 
 func (t *Transaction) Close() error {
-	return t.tx.Close()
+	// v9 移除了 Close 方法，不需要手动关闭
+	return nil
 }
 
 func (t *Transaction) Len() int {

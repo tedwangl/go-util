@@ -68,7 +68,7 @@ func (l *SingleLock) Acquire(ctx context.Context) error {
 	return fmt.Errorf("failed to acquire lock after %d retries", l.options.RetryCount)
 }
 
-// tryAcquire 尝试获取锁
+// tryAcquire 尝试获取锁（内部方法）
 func (l *SingleLock) tryAcquire(ctx context.Context) error {
 	// 使用SET NX命令获取锁
 	cmd := l.client.SetNX(ctx, l.key, l.value, l.options.Expiration)
@@ -82,6 +82,11 @@ func (l *SingleLock) tryAcquire(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// TryAcquire 尝试获取锁（不重试，用于红锁）
+func (l *SingleLock) TryAcquire(ctx context.Context) error {
+	return l.tryAcquire(ctx)
 }
 
 // Release 释放锁

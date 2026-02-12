@@ -3,15 +3,17 @@ package lock
 import (
 	"context"
 	"fmt"
-	"github.com/tedwangl/go-util/pkg/redisx/client"
 	"time"
+
+	"github.com/tedwangl/go-util/pkg/redisx/client"
 )
 
 // RedLock 红锁（分布式锁）
 type RedLock struct {
-	locks   []*SingleLock
-	quorum  int
-	options *LockOptions
+	locks        []*SingleLock
+	quorum       int
+	options      *LockOptions
+	clockDriftMs int64 // 时钟漂移容忍时间（毫秒）
 }
 
 // NewRedLock 创建红锁
@@ -20,19 +22,22 @@ func NewRedLock(clients []client.Client, key string, options *LockOptions) *RedL
 		options = NewLockOptions()
 	}
 
-	// 创建多个单锁
+	// 创建多个单锁（禁用看门狗，由红锁统一管理）
 	locks := make([]*SingleLock, len(clients))
 	for i, c := range clients {
-		locks[i] = NewSingleLock(c, key, options)
+		lockOpts := *options
+		lockOpts.EnableWatchdog = false // 红锁自己管理看门狗
+		locks[i] = NewSingleLock(c, key, &lockOpts)
 	}
 
-	// 计算法定数量
+	// 计算法定数量（N/2 + 1）
 	quorum := len(clients)/2 + 1
 
 	return &RedLock{
-		locks:   locks,
-		quorum:  quorum,
-		options: options,
+		locks:        locks,
+		quorum:       quorum,
+		options:      options,
+		clockDriftMs: 2, // 默认 2ms 时钟漂移容忍
 	}
 }
 
@@ -44,38 +49,35 @@ func (l *RedLock) Acquire(ctx context.Context) error {
 	// 成功获取的锁数量
 	successCount := 0
 
-	// 尝试在所有Redis实例上获取锁
+	// 尝试在所有Redis实例上获取锁（快速失败，不重试）
 	for _, lock := range l.locks {
-		err := lock.tryAcquire(ctx)
+		err := lock.TryAcquire(ctx)
 		if err == nil {
 			successCount++
 		}
 	}
 
-	// 检查是否达到法定数量
-	if successCount < l.quorum {
+	// 计算有效时间（减去获取时间和时钟漂移）
+	elapsed := time.Since(startTime)
+	validityTime := l.options.Expiration - elapsed - time.Duration(l.clockDriftMs)*time.Millisecond
+
+	// 检查是否达到法定数量且有效时间充足
+	if successCount < l.quorum || validityTime <= 0 {
 		// 获取锁失败，释放已获取的锁
 		for _, lock := range l.locks {
 			lock.Release(ctx)
 		}
 
-		return fmt.Errorf("failed to acquire redlock: only %d out of %d locks acquired", successCount, len(l.locks))
-	}
-
-	// 检查获取锁的时间是否超过过期时间的一半
-	elapsed := time.Since(startTime)
-	if elapsed > l.options.Expiration/2 {
-		// 获取锁时间过长，释放所有锁
-		for _, lock := range l.locks {
-			lock.Release(ctx)
+		if successCount < l.quorum {
+			return fmt.Errorf("failed to acquire redlock: only %d out of %d locks acquired (quorum: %d)",
+				successCount, len(l.locks), l.quorum)
 		}
-
-		return fmt.Errorf("failed to acquire redlock: elapsed time %v exceeds half of expiration %v", elapsed, l.options.Expiration)
+		return fmt.Errorf("failed to acquire redlock: validity time %v is not sufficient", validityTime)
 	}
 
-	// 获取锁成功，启动所有锁的看门狗
-	for _, lock := range l.locks {
-		if lock.options.EnableWatchdog {
+	// 获取锁成功，启动看门狗（如果启用）
+	if l.options.EnableWatchdog {
+		for _, lock := range l.locks {
 			lock.startWatchdog()
 		}
 	}
@@ -117,4 +119,9 @@ func (l *RedLock) GetKey() string {
 	}
 
 	return ""
+}
+
+// SetClockDrift 设置时钟漂移容忍时间（毫秒）
+func (l *RedLock) SetClockDrift(ms int64) {
+	l.clockDriftMs = ms
 }

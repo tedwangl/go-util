@@ -2,10 +2,11 @@ package client
 
 import (
 	"context"
-	"github.com/tedwangl/go-util/pkg/redisx/config"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/tedwangl/go-util/pkg/redisx/config"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // ClusterClient 集群模式Redis客户端
@@ -27,6 +28,7 @@ func NewClusterClient(cfg *config.ClusterConfig, opts *config.Config) (*ClusterC
 
 	redisOpts := &redis.ClusterOptions{
 		Addrs:        cfg.Addrs,
+		Username:     opts.Username,
 		Password:     opts.Password,
 		PoolSize:     opts.PoolSize,
 		MinIdleConns: opts.MinIdleConns,
@@ -160,7 +162,12 @@ func (c *ClusterClient) SIsMember(ctx context.Context, key string, member interf
 
 // ZAdd 添加有序集合成员
 func (c *ClusterClient) ZAdd(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
-	return c.client.ZAdd(ctx, key, members...)
+	// v9 API 变化：ZAdd 参数从 ...*redis.Z 改为 ...redis.Z
+	zMembers := make([]redis.Z, len(members))
+	for i, m := range members {
+		zMembers[i] = *m
+	}
+	return c.client.ZAdd(ctx, key, zMembers...)
 }
 
 // ZRem 删除有序集合成员

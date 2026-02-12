@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 	"github.com/tedwangl/go-util/pkg/redisx/client"
 )
 
@@ -81,7 +81,7 @@ func (p *Pipeline) HDel(ctx context.Context, key string, fields ...string) *redi
 	return p.pipe.HDel(ctx, key, fields...)
 }
 
-func (p *Pipeline) HGetAll(ctx context.Context, key string) *redis.StringStringMapCmd {
+func (p *Pipeline) HGetAll(ctx context.Context, key string) *redis.MapStringStringCmd {
 	return p.pipe.HGetAll(ctx, key)
 }
 
@@ -102,7 +102,12 @@ func (p *Pipeline) SIsMember(ctx context.Context, key string, member interface{}
 }
 
 func (p *Pipeline) ZAdd(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
-	return p.pipe.ZAdd(ctx, key, members...)
+	// v9 API 变化：ZAdd 参数从 ...*redis.Z 改为 ...redis.Z
+	zMembers := make([]redis.Z, len(members))
+	for i, m := range members {
+		zMembers[i] = *m
+	}
+	return p.pipe.ZAdd(ctx, key, zMembers...)
 }
 
 func (p *Pipeline) ZRem(ctx context.Context, key string, members ...interface{}) *redis.IntCmd {
@@ -138,11 +143,14 @@ func (p *Pipeline) Exec(ctx context.Context) ([]redis.Cmder, error) {
 }
 
 func (p *Pipeline) Close() error {
-	return p.pipe.Close()
+	// v9 移除了 Close 方法，不需要手动关闭
+	return nil
 }
 
 func (p *Pipeline) Discard() error {
-	return p.pipe.Discard()
+	// v9 的 Discard 不返回 error
+	p.pipe.Discard()
+	return nil
 }
 
 func (p *Pipeline) Len() int {

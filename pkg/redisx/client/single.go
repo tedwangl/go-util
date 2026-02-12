@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/tedwangl/go-util/pkg/redisx/config"
 )
@@ -28,6 +28,7 @@ func NewSingleClient(cfg *config.SingleConfig, opts *config.Config) (*SingleClie
 
 	redisOpts := &redis.Options{
 		Addr:         cfg.Addr,
+		Username:     opts.Username,
 		Password:     opts.Password,
 		DB:           opts.DB,
 		PoolSize:     opts.PoolSize,
@@ -162,7 +163,12 @@ func (c *SingleClient) SIsMember(ctx context.Context, key string, member interfa
 
 // ZAdd 添加有序集合成员
 func (c *SingleClient) ZAdd(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
-	return c.client.ZAdd(ctx, key, members...)
+	// v9 API 变化：ZAdd 参数从 ...*redis.Z 改为 ...redis.Z
+	zMembers := make([]redis.Z, len(members))
+	for i, m := range members {
+		zMembers[i] = *m
+	}
+	return c.client.ZAdd(ctx, key, zMembers...)
 }
 
 // ZRem 删除有序集合成员

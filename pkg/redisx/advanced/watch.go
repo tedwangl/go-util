@@ -3,9 +3,10 @@ package advanced
 import (
 	"context"
 	"fmt"
+
 	"github.com/tedwangl/go-util/pkg/redisx/client"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 )
 
 type WatchHandler struct {

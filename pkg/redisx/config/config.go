@@ -24,6 +24,7 @@ type Config struct {
 	MultiMaster *MultiMasterConfig `json:"multi-master,omitempty" yaml:"multi-master,omitempty"`
 
 	// 通用配置
+	Username     string        `json:"username,omitempty" yaml:"username,omitempty"` // Redis 6.0+ ACL 用户名
 	Password     string        `json:"password,omitempty" yaml:"password,omitempty"`
 	DB           int           `json:"db" yaml:"db"`
 	PoolSize     int           `json:"pool_size" yaml:"pool_size"`
@@ -42,8 +43,9 @@ type SingleConfig struct {
 
 // SentinelConfig 哨兵配置
 type SentinelConfig struct {
-	MasterName    string   `json:"master_name" yaml:"master_name"`
-	SentinelAddrs []string `json:"sentinel_addrs" yaml:"sentinel_addrs"`
+	MasterName       string   `json:"master_name" yaml:"master_name"`
+	SentinelAddrs    []string `json:"sentinel_addrs" yaml:"sentinel_addrs"`
+	SentinelPassword string   `json:"sentinel_password,omitempty" yaml:"sentinel_password,omitempty"` // 哨兵密码
 }
 
 // ClusterConfig 集群配置

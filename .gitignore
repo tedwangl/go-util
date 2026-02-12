@@ -34,3 +34,5 @@ go.work.sum
 # Demo folders
 demo_*/
 demo_*/
+examples/
+test_*/

@@ -3,10 +3,11 @@ package client
 import (
 	"context"
 	"fmt"
-	"github.com/tedwangl/go-util/pkg/redisx/config"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/tedwangl/go-util/pkg/redisx/config"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // NewClient 根据配置创建Redis客户端

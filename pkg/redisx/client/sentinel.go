@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/tedwangl/go-util/pkg/redisx/config"
 )
@@ -29,6 +29,8 @@ func NewSentinelClient(cfg *config.SentinelConfig, opts *config.Config) (*Sentin
 	redisOpts := &redis.FailoverOptions{
 		MasterName:       cfg.MasterName,
 		SentinelAddrs:    cfg.SentinelAddrs,
+		SentinelPassword: cfg.SentinelPassword,
+		Username:         opts.Username,
 		Password:         opts.Password,
 		DB:               opts.DB,
 		PoolSize:         opts.PoolSize,
@@ -38,7 +40,6 @@ func NewSentinelClient(cfg *config.SentinelConfig, opts *config.Config) (*Sentin
 		ReadTimeout:      opts.ReadTimeout,
 		WriteTimeout:     opts.WriteTimeout,
 		PoolTimeout:      opts.PoolTimeout,
-		SentinelPassword: "", // 可以从配置中扩展
 	}
 
 	client := redis.NewFailoverClient(redisOpts)
@@ -164,7 +165,12 @@ func (c *SentinelClient) SIsMember(ctx context.Context, key string, member inter
 
 // ZAdd 添加有序集合成员
 func (c *SentinelClient) ZAdd(ctx context.Context, key string, members ...*redis.Z) *redis.IntCmd {
-	return c.client.ZAdd(ctx, key, members...)
+	// v9 API 变化：ZAdd 参数从 ...*redis.Z 改为 ...redis.Z
+	zMembers := make([]redis.Z, len(members))
+	for i, m := range members {
+		zMembers[i] = *m
+	}
+	return c.client.ZAdd(ctx, key, zMembers...)
 }
 
 // ZRem 删除有序集合成员
