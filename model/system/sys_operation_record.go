@@ -4,7 +4,7 @@ package system
 import (
 	"time"
 
-	"github.com/tedwangl/go-util/pkg/base"
+	"github.com/tedwangl/go-util/global"
 )
 
 // 如果含有time.Time 请自行import time包

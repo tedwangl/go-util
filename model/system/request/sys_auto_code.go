@@ -2,13 +2,13 @@ package request
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/tedwangl/go-util/global"
 	"go/token"
 	"strings"
 
-	"github.com/flipped-aurora/gin-vue-admin/server/global"
-	model "github.com/flipped-aurora/gin-vue-admin/server/model/system"
-	"github.com/pkg/errors"
+	model "github.com/tedwangl/go-util/model/system"
 )
 
 type AutoCode struct {

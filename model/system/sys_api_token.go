@@ -3,7 +3,7 @@ package system
 import (
 	"time"
 
-	"github.com/tedwangl/go-util/pkg/base"
+	"github.com/tedwangl/go-util/global"
 )
 
 type SysApiToken struct {

@@ -1,8 +1,8 @@
 package request
 
 import (
-	"github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
-	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	"github.com/tedwangl/go-util/model/common/request"
+	"github.com/tedwangl/go-util/model/system"
 )
 
 type SysDictionaryDetailSearch struct {

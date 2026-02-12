@@ -2,8 +2,8 @@ package system
 
 import (
 	"github.com/google/uuid"
-	"github.com/tedwangl/go-util/pkg/model/common"
-	"github.com/tedwangl/go-util/pkg/base"
+	"github.com/tedwangl/go-util/global"
+	"github.com/tedwangl/go-util/model/common"
 )
 
 type Login interface {

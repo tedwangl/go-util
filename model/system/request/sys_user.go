@@ -1,8 +1,8 @@
 package request
 
 import (
-	common "github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
-	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	"github.com/tedwangl/go-util/model/system"
+	common "github.com/tedwangl/go-util/model/common/request"
 )
 
 // Register User register structure

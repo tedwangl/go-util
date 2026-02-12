@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tedwangl/go-util/pkg/base"
+	"github.com/tedwangl/go-util/global"
 )
 
 // SysAutoCodeHistory 自动迁移代码记录,用于回滚,重放使用

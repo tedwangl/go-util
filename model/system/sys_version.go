@@ -1,7 +1,9 @@
 // 自动生成模板SysVersion
 package system
 
-import "github.com/tedwangl/go-util/pkg/base"
+import (
+	"github.com/tedwangl/go-util/global"
+)
 
 // 版本管理 结构体  SysVersion
 type SysVersion struct {

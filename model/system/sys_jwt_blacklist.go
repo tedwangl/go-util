@@ -1,7 +1,7 @@
 package system
 
 import (
-	"github.com/tedwangl/go-util/pkg/base"
+	"github.com/tedwangl/go-util/global"
 )
 
 type JwtBlacklist struct {

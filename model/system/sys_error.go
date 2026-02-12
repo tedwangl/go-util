@@ -2,7 +2,8 @@
 package system
 
 import (
-	"github.com/tedwangl/go-util/pkg/base"
+	"github.com/tedwangl/go-util/global"
+
 )
 
 // 错误日志 结构体  SysError

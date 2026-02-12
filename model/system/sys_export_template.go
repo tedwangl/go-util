@@ -2,7 +2,7 @@
 package system
 
 import (
-	"github.com/tedwangl/go-util/pkg/base"
+	"github.com/tedwangl/go-util/global"
 )
 
 // 导出模板 结构体  SysExportTemplate

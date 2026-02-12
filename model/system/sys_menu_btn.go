@@ -1,6 +1,8 @@
 package system
 
-import "github.com/tedwangl/go-util/pkg/base"
+import (
+	"github.com/tedwangl/go-util/global"
+)
 
 type SysBaseMenuBtn struct {
 	global.GVA_MODEL

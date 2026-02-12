@@ -2,7 +2,8 @@ package request
 
 import (
 	"fmt"
-	"github.com/flipped-aurora/gin-vue-admin/server/config"
+	"github.com/tedwangl/go-util/config"
+
 	"os"
 )
 
