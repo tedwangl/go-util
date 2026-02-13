@@ -20,13 +20,16 @@ type (
 
 	// Task 任务（通用）
 	Task struct {
-		ID        int64     `gorm:"primarykey" json:"id"`             // 雪花ID
-		Name      string    `gorm:"uniqueIndex;not null" json:"name"` // 任务名称
-		Command   string    `gorm:"not null" json:"command"`          // 执行命令
-		Schedule  string    `gorm:"default:''" json:"schedule"`       // cron 表达式（空表示不调度）
-		Enabled   bool      `gorm:"default:true" json:"enabled"`      // 是否启用（仅调度任务有效）
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
+		ID          int64      `gorm:"primarykey" json:"id"`             // 雪花ID
+		Name        string     `gorm:"uniqueIndex;not null" json:"name"` // 任务名称
+		Command     string     `gorm:"not null" json:"command"`          // 执行命令
+		Schedule    string     `gorm:"default:''" json:"schedule"`       // cron 表达式或特殊标记（@once, @delay:5m）
+		Enabled     bool       `gorm:"default:true" json:"enabled"`      // 是否启用
+		Completed   bool       `gorm:"default:false" json:"completed"`   // 是否已完成（once/delay 任务用）
+		RunAt       *time.Time `json:"run_at,omitempty"`                 // 指定执行时间（用于延迟任务）
+		CompletedAt *time.Time `json:"completed_at,omitempty"`           // 完成时间
+		CreatedAt   time.Time  `json:"created_at"`
+		UpdatedAt   time.Time  `json:"updated_at"`
 	}
 
 	// TaskLog 任务执行日志（只记录状态）
@@ -42,10 +45,11 @@ type (
 
 	// Daemon 任务守护进程
 	Daemon struct {
-		db        *gorm.DB
+		DB        *gorm.DB // 暴露给外部访问
 		scheduler *scheduler.Scheduler
 		dbPath    string
 		idGen     *genid.SnowflakeID
+		started   bool // 标记 scheduler 是否已启动
 	}
 )
 
@@ -83,8 +87,8 @@ func NewDaemon(dbPath string) (*Daemon, error) {
 	}
 
 	return &Daemon{
-		db:        db,
-		scheduler: scheduler.NewScheduler(),
+		DB:        db,
+		scheduler: scheduler.NewScheduler(scheduler.WithSeconds()),
 		dbPath:    dbPath,
 		idGen:     idGen,
 	}, nil
@@ -98,25 +102,35 @@ func (d *Daemon) Start() error {
 
 	// 启动调度器
 	d.scheduler.Start()
+	d.started = true
 	return nil
 }
 
-// loadTasks 加载所有任务到调度器
+// loadTasks 加载所有任务到调度器（只加载未完成的调度任务）
 func (d *Daemon) loadTasks() error {
-	// 加载所有启用的调度任务
+	// 加载所有启用的、未完成的调度任务
 	var tasks []Task
-	if err := d.db.Where("enabled = ? AND schedule != ''", true).Find(&tasks).Error; err != nil {
+	if err := d.DB.Where("enabled = ? AND completed = ? AND schedule != ''", true, false).Find(&tasks).Error; err != nil {
 		return fmt.Errorf("加载任务失败: %w", err)
 	}
 
 	// 注册任务到调度器
-	for _, task := range tasks {
-		t := task // 避免闭包问题
-		if err := d.scheduler.AddFunc(t.Schedule, t.Name, func() error {
-			d.executeTask(&t)
+	for i := range tasks {
+		task := &tasks[i]
+		taskID := task.ID // 捕获 ID，避免闭包问题
+		taskName := task.Name
+
+		if err := d.scheduler.AddFunc(task.Schedule, task.Name, func() error {
+			// 每次执行时从数据库加载最新任务配置
+			var currentTask Task
+			if err := d.DB.Where("id = ?", taskID).First(&currentTask).Error; err != nil {
+				fmt.Printf("加载任务 %s 失败: %v\n", taskName, err)
+				return err
+			}
+			d.executeTask(&currentTask)
 			return nil
 		}); err != nil {
-			return fmt.Errorf("注册任务 %s 失败: %w", t.Name, err)
+			return fmt.Errorf("注册任务 %s 失败: %w", task.Name, err)
 		}
 	}
 
@@ -142,16 +156,30 @@ func (d *Daemon) RemoveJobFromScheduler(name string) error {
 
 // AddJobToScheduler 添加任务到调度器
 func (d *Daemon) AddJobToScheduler(task *Task) error {
-	t := *task // 复制值，避免闭包问题
+	// 重新从数据库加载任务，确保数据最新
+	var t Task
+	if err := d.DB.Where("id = ?", task.ID).First(&t).Error; err != nil {
+		return fmt.Errorf("加载任务失败: %w", err)
+	}
+
 	return d.scheduler.AddFunc(t.Schedule, t.Name, func() error {
-		d.executeTask(&t)
+		// 每次执行时重新加载任务，确保使用最新配置
+		var currentTask Task
+		if err := d.DB.Where("id = ?", t.ID).First(&currentTask).Error; err != nil {
+			fmt.Printf("加载任务 %s 失败: %v\n", t.Name, err)
+			return err
+		}
+		d.executeTask(&currentTask)
 		return nil
 	})
 }
 
 // Stop 停止守护进程
 func (d *Daemon) Stop() {
-	d.scheduler.Stop()
+	if d.started {
+		d.scheduler.Stop()
+		d.started = false
+	}
 }
 
 // executeTask 执行任务（只记录状态）
@@ -164,7 +192,7 @@ func (d *Daemon) executeTask(task *Task) {
 		StartTime: time.Now(),
 		Status:    TaskStatusRunning,
 	}
-	d.db.Create(log)
+	d.DB.Create(log)
 
 	// 执行命令
 	cmd := exec.Command("sh", "-c", task.Command)
@@ -179,11 +207,50 @@ func (d *Daemon) executeTask(task *Task) {
 		log.Status = TaskStatusSuccess
 	}
 
-	d.db.Save(log)
+	d.DB.Save(log)
+}
+
+// ExecuteOnceTask 执行一次性/延迟任务（公开方法，供外部调用）
+func (d *Daemon) ExecuteOnceTask(task *Task) {
+	d.executeOnceTask(task)
+}
+
+// executeOnceTask 执行一次性/延迟任务（执行后标记为完成）
+func (d *Daemon) executeOnceTask(task *Task) {
+	// 如果是延迟任务，等待到指定时间
+	if task.RunAt != nil {
+		waitDuration := time.Until(*task.RunAt)
+		if waitDuration > 0 {
+			fmt.Printf("任务 %s 将在 %s 后执行\n", task.Name, waitDuration.Round(time.Second))
+			time.Sleep(waitDuration)
+		}
+	}
+
+	fmt.Printf("开始执行一次性任务: %s\n", task.Name)
+
+	// 执行任务
+	d.executeTask(task)
+
+	// 执行完成后标记为已完成
+	now := time.Now()
+	if err := d.DB.Model(task).Updates(map[string]any{
+		"completed":    true,
+		"enabled":      false,
+		"completed_at": now,
+	}).Error; err != nil {
+		fmt.Printf("标记任务完成失败: %v\n", err)
+	} else {
+		fmt.Printf("一次性任务 %s 执行完成\n", task.Name)
+	}
 }
 
 // AddTask 添加任务（必须有调度）
 func (d *Daemon) AddTask(name, command, schedule string) error {
+	return d.AddTaskWithRunAt(name, command, schedule, nil)
+}
+
+// AddTaskWithRunAt 添加任务（支持指定执行时间）
+func (d *Daemon) AddTaskWithRunAt(name, command, schedule string, runAt *time.Time) error {
 	if schedule == "" {
 		return fmt.Errorf("调度表达式不能为空")
 	}
@@ -194,36 +261,37 @@ func (d *Daemon) AddTask(name, command, schedule string) error {
 		Command:  command,
 		Schedule: schedule,
 		Enabled:  true,
+		RunAt:    runAt,
 	}
-	return d.db.Create(task).Error
+	return d.DB.Create(task).Error
 }
 
 // RemoveTask 删除任务
 func (d *Daemon) RemoveTask(name string) error {
-	return d.db.Where("name = ?", name).Delete(&Task{}).Error
+	return d.DB.Where("name = ?", name).Delete(&Task{}).Error
 }
 
 // EnableTask 启用任务
 func (d *Daemon) EnableTask(name string) error {
-	return d.db.Model(&Task{}).Where("name = ?", name).Update("enabled", true).Error
+	return d.DB.Model(&Task{}).Where("name = ?", name).Update("enabled", true).Error
 }
 
 // DisableTask 禁用任务
 func (d *Daemon) DisableTask(name string) error {
-	return d.db.Model(&Task{}).Where("name = ?", name).Update("enabled", false).Error
+	return d.DB.Model(&Task{}).Where("name = ?", name).Update("enabled", false).Error
 }
 
 // ListTasks 列出所有任务
 func (d *Daemon) ListTasks() ([]Task, error) {
 	var tasks []Task
-	err := d.db.Find(&tasks).Error
+	err := d.DB.Find(&tasks).Error
 	return tasks, err
 }
 
 // GetTask 获取任务
 func (d *Daemon) GetTask(name string) (*Task, error) {
 	var task Task
-	err := d.db.Where("name = ?", name).First(&task).Error
+	err := d.DB.Where("name = ?", name).First(&task).Error
 	if err == gorm.ErrRecordNotFound {
 		return nil, fmt.Errorf("任务不存在: %s", name)
 	}
@@ -233,7 +301,7 @@ func (d *Daemon) GetTask(name string) (*Task, error) {
 // GetTaskByID 根据ID获取任务
 func (d *Daemon) GetTaskByID(id int64) (*Task, error) {
 	var task Task
-	err := d.db.Where("id = ?", id).First(&task).Error
+	err := d.DB.Where("id = ?", id).First(&task).Error
 	if err == gorm.ErrRecordNotFound {
 		return nil, fmt.Errorf("任务不存在: %d", id)
 	}
@@ -242,7 +310,7 @@ func (d *Daemon) GetTaskByID(id int64) (*Task, error) {
 
 // ListLogs 列出任务日志
 func (d *Daemon) ListLogs(taskName string, limit int) ([]TaskLog, error) {
-	query := d.db.Order("start_time DESC")
+	query := d.DB.Order("start_time DESC")
 	if taskName != "" {
 		query = query.Where("task_name = ?", taskName)
 	}
@@ -258,9 +326,14 @@ func (d *Daemon) ListLogs(taskName string, limit int) ([]TaskLog, error) {
 // Close 关闭
 func (d *Daemon) Close() error {
 	d.Stop()
-	sqlDB, err := d.db.DB()
+	sqlDB, err := d.DB.DB()
 	if err != nil {
 		return err
 	}
 	return sqlDB.Close()
+}
+
+// GetScheduler 获取调度器（用于信号处理）
+func (d *Daemon) GetScheduler() *scheduler.Scheduler {
+	return d.scheduler
 }

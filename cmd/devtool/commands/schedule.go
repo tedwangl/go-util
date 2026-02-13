@@ -17,9 +17,8 @@ import (
 )
 
 var (
-	dbPath     = filepath.Join(os.Getenv("HOME"), ".devtool", "schedule.db")
-	pidFile    = filepath.Join(os.Getenv("HOME"), ".devtool", "schedule.pid")
-	actionFile = filepath.Join(os.Getenv("HOME"), ".devtool", "schedule.action")
+	dbPath  = filepath.Join(os.Getenv("HOME"), ".devtool", "schedule.db")
+	pidFile = filepath.Join(os.Getenv("HOME"), ".devtool", "schedule.pid")
 )
 
 // RegisterScheduleCommands 注册定时任务相关命令
@@ -56,7 +55,8 @@ func RegisterScheduleCommands(tool *cobrax.Tool) {
 			}
 
 			// 保存 PID
-			if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", daemonCmd.Process.Pid)), 0644); err != nil {
+			pidData := []byte(strconv.Itoa(daemonCmd.Process.Pid))
+			if err := os.WriteFile(pidFile, pidData, 0644); err != nil {
 				return fmt.Errorf("保存 PID 失败: %w", err)
 			}
 
@@ -131,45 +131,107 @@ func RegisterScheduleCommands(tool *cobrax.Tool) {
 
 			// 监听信号
 			sigChan := make(chan os.Signal, 1)
-			signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+			signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2)
 
-			for {
-				sig := <-sigChan
-				switch sig {
-				case syscall.SIGHUP:
-					// 读取操作文件
-					data, err := os.ReadFile(actionFile)
-					if err != nil {
-						fmt.Printf("读取操作文件失败: %v\n", err)
-						continue
-					}
+			// 记录当前调度器中的任务（用于检测删除）
+			currentTasks := make(map[string]bool)
+			for _, job := range d.GetScheduler().ListJobs() {
+				currentTasks[job.Name] = true
+			}
 
-					// 解析操作：remove:taskname 或 reload
-					action := string(data)
-					if action == "reload" {
-						fmt.Println("收到重载信号，重新加载任务...")
-						if err := d.Reload(); err != nil {
-							fmt.Printf("重载失败: %v\n", err)
+			// 同步任务的函数（信号和定时器共用）
+			syncTasks := func() {
+				var tasks []daemon.Task
+				if err := d.DB.Where("enabled = ? AND completed = ? AND schedule != ''", true, false).Find(&tasks).Error; err != nil {
+					fmt.Printf("查询任务失败: %v\n", err)
+					return
+				}
+
+				// 构建数据库任务集合
+				dbTasks := make(map[string]*daemon.Task)
+				for i := range tasks {
+					dbTasks[tasks[i].Name] = &tasks[i]
+				}
+
+				// 1. 添加新任务（数据库有但调度器没有）
+				for name, task := range dbTasks {
+					if !currentTasks[name] {
+						// 检查是否是特殊任务（@once 或 @delay）
+						if task.Schedule == "@once" || (len(task.Schedule) > 7 && task.Schedule[:7] == "@delay:") {
+							// 一次性任务或延迟任务：使用 goroutine 执行
+							fmt.Printf("添加一次性/延迟任务: %s\n", name)
+							go d.ExecuteOnceTask(task)
+							currentTasks[name] = true
 						} else {
-							fmt.Println("任务重载成功")
+							// 普通定时任务：添加到调度器
+							fmt.Printf("添加定时任务: %s\n", name)
+							if err := d.AddJobToScheduler(task); err != nil {
+								fmt.Printf("添加失败: %v\n", err)
+							} else {
+								currentTasks[name] = true
+								fmt.Printf("任务 %s 已添加到调度器\n", name)
+							}
 						}
-					} else if len(action) > 7 && action[:7] == "remove:" {
-						taskName := action[7:]
-						fmt.Printf("收到移除信号，移除任务: %s\n", taskName)
+					}
+				}
+
+				// 2. 删除任务（调度器有但数据库没有，或任务已完成）
+				for taskName := range currentTasks {
+					task, exists := dbTasks[taskName]
+					if !exists || task.Completed {
+						fmt.Printf("删除任务: %s\n", taskName)
 						if err := d.RemoveJobFromScheduler(taskName); err != nil {
-							fmt.Printf("移除失败: %v\n", err)
+							fmt.Printf("删除失败: %v\n", err)
 						} else {
+							delete(currentTasks, taskName)
 							fmt.Printf("任务 %s 已从调度器移除\n", taskName)
 						}
 					}
+				}
+			}
 
-					// 删除操作文件
-					os.Remove(actionFile)
+			// 定期同步定时器（每 30 秒检查一次，兜底机制）
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
 
-				case syscall.SIGINT, syscall.SIGTERM:
-					// 停止守护进程
-					fmt.Println("\n收到停止信号，正在关闭...")
-					return nil
+			for {
+				select {
+				case <-ticker.C:
+					// 定期同步
+					fmt.Println("定期检查任务变化...")
+					syncTasks()
+
+				case sig := <-sigChan:
+					switch sig {
+					case syscall.SIGUSR1:
+						// 添加任务信号：立即同步
+						fmt.Println("收到添加任务信号，立即同步...")
+						syncTasks()
+
+					case syscall.SIGUSR2:
+						// 删除任务信号：立即同步
+						fmt.Println("收到删除任务信号，立即同步...")
+						syncTasks()
+
+					case syscall.SIGHUP:
+						// 重载所有任务
+						fmt.Println("收到重载信号，重新加载所有任务...")
+						if err := d.Reload(); err != nil {
+							fmt.Printf("重载失败: %v\n", err)
+						} else {
+							// 更新任务列表
+							currentTasks = make(map[string]bool)
+							for _, job := range d.GetScheduler().ListJobs() {
+								currentTasks[job.Name] = true
+							}
+							fmt.Println("任务重载成功")
+						}
+
+					case syscall.SIGINT, syscall.SIGTERM:
+						// 停止守护进程
+						fmt.Println("\n收到停止信号，正在关闭...")
+						return nil
+					}
 				}
 			}
 		}),
@@ -201,9 +263,11 @@ func RegisterScheduleCommands(tool *cobrax.Tool) {
 			fmt.Println("定时任务列表:")
 			fmt.Println("----------------------------------------")
 			for i, task := range tasks {
-				status := "启用"
-				if !task.Enabled {
-					status = "禁用"
+				status := "运行中"
+				if task.Completed {
+					status = "已完成"
+				} else if !task.Enabled {
+					status = "已禁用"
 				}
 				scheduleInfo := "无调度"
 				if task.Schedule != "" {
@@ -213,6 +277,9 @@ func RegisterScheduleCommands(tool *cobrax.Tool) {
 				fmt.Printf("   调度: %s\n", scheduleInfo)
 				fmt.Printf("   命令: %s\n", task.Command)
 				fmt.Printf("   创建: %s\n", task.CreatedAt.Format("2006-01-02 15:04:05"))
+				if task.CompletedAt != nil {
+					fmt.Printf("   完成: %s\n", task.CompletedAt.Format("2006-01-02 15:04:05"))
+				}
 				fmt.Println()
 			}
 			return nil
@@ -223,21 +290,47 @@ func RegisterScheduleCommands(tool *cobrax.Tool) {
 	addCmd := tool.NewCommand(
 		"add",
 		"添加定时任务",
-		"添加新的定时任务",
+		"添加新的定时任务、延迟任务或一次性任务",
 		cobrax.CmdRunnerFunc(func(cmd *cobra.Command, args []string) error {
 			if len(args) < 1 {
-				return fmt.Errorf("用法: devtool add <命令> --schedule <cron表达式> [--name 任务名]")
+				return fmt.Errorf("用法: devtool add <命令> [--schedule <cron> | --delay <时长> | --once]")
 			}
 
 			command := args[0]
 			schedule := viper.GetString("schedule")
-			if schedule == "" {
-				return fmt.Errorf("必须指定调度表达式（--schedule）")
+			delay := viper.GetString("delay")
+			once := viper.GetBool("once")
+
+			// 验证参数：必须指定 schedule、delay 或 once 之一
+			if schedule == "" && delay == "" && !once {
+				return fmt.Errorf("必须指定 --schedule、--delay 或 --once 之一")
+			}
+			if (schedule != "" && delay != "") || (schedule != "" && once) || (delay != "" && once) {
+				return fmt.Errorf("--schedule、--delay 和 --once 只能指定一个")
 			}
 
 			name := viper.GetString("name")
 			if name == "" {
 				name = fmt.Sprintf("task-%d", time.Now().Unix())
+			}
+
+			// 构建 schedule 字符串
+			var scheduleStr string
+			var runAt *time.Time
+			if once {
+				scheduleStr = "@once"
+				now := time.Now()
+				runAt = &now
+			} else if delay != "" {
+				duration, err := time.ParseDuration(delay)
+				if err != nil {
+					return fmt.Errorf("无效的延迟时间格式: %v（示例: 5m, 1h, 30s）", err)
+				}
+				scheduleStr = "@delay:" + delay
+				runAtTime := time.Now().Add(duration)
+				runAt = &runAtTime
+			} else {
+				scheduleStr = schedule
 			}
 
 			d, err := daemon.NewDaemon(dbPath)
@@ -246,27 +339,28 @@ func RegisterScheduleCommands(tool *cobrax.Tool) {
 			}
 			defer d.Close()
 
-			if err := d.AddTask(name, command, schedule); err != nil {
+			if err := d.AddTaskWithRunAt(name, command, scheduleStr, runAt); err != nil {
 				return err
 			}
 
 			fmt.Printf("任务 %s 添加成功\n", name)
-			fmt.Printf("调度: %s\n", schedule)
+			if once {
+				fmt.Printf("类型: 一次性任务（立即执行）\n")
+			} else if delay != "" {
+				fmt.Printf("类型: 延迟任务（%s 后执行）\n", delay)
+				fmt.Printf("执行时间: %s\n", runAt.Format("2006-01-02 15:04:05"))
+			} else {
+				fmt.Printf("调度: %s\n", schedule)
+			}
 			fmt.Printf("命令: %s\n", command)
 
-			// 通知守护进程重新加载
+			// 通知守护进程添加任务
 			if isRunning() {
-				// 写入操作文件
-				if err := os.WriteFile(actionFile, []byte("reload"), 0644); err != nil {
-					fmt.Printf("写入操作文件失败: %v\n", err)
-				} else {
-					// 发送信号
-					pid, _ := getPID()
-					process, err := os.FindProcess(pid)
-					if err == nil {
-						process.Signal(syscall.SIGHUP)
-						fmt.Println("已通知守护进程重新加载")
-					}
+				pid, _ := getPID()
+				process, err := os.FindProcess(pid)
+				if err == nil {
+					process.Signal(syscall.SIGUSR1)
+					fmt.Println("已通知守护进程添加任务")
 				}
 			} else {
 				fmt.Println("\n提示: 使用 'devtool start' 启动调度器")
@@ -276,7 +370,9 @@ func RegisterScheduleCommands(tool *cobrax.Tool) {
 		}),
 	)
 	addCmd.AddFlag("name", "n", "", "任务名称")
-	addCmd.AddFlag("schedule", "s", "", "cron 表达式（必填）")
+	addCmd.AddFlag("schedule", "s", "", "cron 表达式（定时任务）")
+	addCmd.AddFlag("delay", "", "", "延迟时间（如: 5m, 1h, 30s）")
+	addCmd.AddFlag("once", "o", false, "立即执行一次")
 
 	// schedule remove - 删除任务
 	removeCmd := tool.NewCommand(
@@ -303,17 +399,11 @@ func RegisterScheduleCommands(tool *cobrax.Tool) {
 
 			// 通知守护进程移除任务
 			if isRunning() {
-				// 写入操作文件
-				if err := os.WriteFile(actionFile, []byte("remove:"+name), 0644); err != nil {
-					fmt.Printf("写入操作文件失败: %v\n", err)
-				} else {
-					// 发送信号
-					pid, _ := getPID()
-					process, err := os.FindProcess(pid)
-					if err == nil {
-						process.Signal(syscall.SIGHUP)
-						fmt.Println("已通知守护进程移除任务")
-					}
+				pid, _ := getPID()
+				process, err := os.FindProcess(pid)
+				if err == nil {
+					process.Signal(syscall.SIGUSR2)
+					fmt.Println("已通知守护进程移除任务")
 				}
 			}
 
@@ -373,7 +463,30 @@ func RegisterScheduleCommands(tool *cobrax.Tool) {
 	)
 	logsCmd.AddFlag("limit", "l", 20, "显示条数")
 
-	scheduleGroup.AddCommand(startCmd, stopCmd, statusCmd, listCmd, addCmd, removeCmd, logsCmd, daemonCmd)
+	// schedule clean - 清理已完成任务
+	cleanCmd := tool.NewCommand(
+		"clean",
+		"清理已完成任务",
+		"删除所有已完成的一次性/延迟任务记录",
+		cobrax.CmdRunnerFunc(func(cmd *cobra.Command, args []string) error {
+			d, err := daemon.NewDaemon(dbPath)
+			if err != nil {
+				return err
+			}
+			defer d.Close()
+
+			// 删除已完成的任务
+			result := d.DB.Where("completed = ?", true).Delete(&daemon.Task{})
+			if result.Error != nil {
+				return result.Error
+			}
+
+			fmt.Printf("已清理 %d 个已完成任务\n", result.RowsAffected)
+			return nil
+		}),
+	)
+
+	scheduleGroup.AddCommand(startCmd, stopCmd, statusCmd, listCmd, addCmd, removeCmd, logsCmd, cleanCmd, daemonCmd)
 	tool.AddGroupLogic(scheduleGroup)
 }
 
