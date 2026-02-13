@@ -1,0 +1,7 @@
+{"level":"info","ts":1770963430.6053498,"caller":"cobrax/tool.go:267","msg":"数据库连接信息","host":"192.168.1.100","port":5432,"database":"testdb"}
+{"level":"info","ts":1770963430.6053162,"caller":"cobrax/tool.go:143","msg":"执行命令","command":"mycli hello"}
+{"level":"info","ts":1770963430.605504,"caller":"cobrax/tool.go:143","msg":"执行命令","command":"mycli db migrate"}
+{"level":"info","ts":1770963430.605524,"caller":"cobrax/tool.go:267","msg":"执行迁移","version":"v2.0"}
+{"level":"info","ts":1770963430.605529,"caller":"cobrax/tool.go:267","msg":"执行 hello 命令","name":"Alice","age":25}
+{"level":"info","ts":1770963430.6056068,"caller":"cobrax/tool.go:267","msg":"关闭数据库连接"}
+{"level":"info","ts":1770963430.605678,"caller":"cobrax/tool.go:143","msg":"执行命令","command":"mycli config"}

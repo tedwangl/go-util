@@ -1,0 +1,131 @@
+# ProxySQL 配置文件
+
+datadir="/var/lib/proxysql"
+
+admin_variables=
+{
+    admin_credentials="admin:admin;radmin:radmin"
+    mysql_ifaces="0.0.0.0:6032"
+}
+
+mysql_variables=
+{
+    threads=4
+    max_connections=2048
+    default_query_delay=0
+    default_query_timeout=36000000
+    have_compress=true
+    poll_timeout=2000
+    interfaces="0.0.0.0:6033"
+    default_schema="testdb"
+    stacksize=1048576
+    server_version="8.0.0"
+    connect_timeout_server=3000
+    monitor_username="monitor"
+    monitor_password="monitor"
+    monitor_history=600000
+    monitor_connect_interval=60000
+    monitor_ping_interval=10000
+    monitor_read_only_interval=1500
+    monitor_read_only_timeout=500
+    ping_interval_server_msec=120000
+    ping_timeout_server=500
+    commands_stats=true
+    sessions_sort=true
+    connect_retries_on_failure=10
+}
+
+# 定义 MySQL 服务器
+# 
+# 方案 A：固定主从（IP 或容器名）
+# 问题：主从切换后需要手动修改配置
+# mysql_servers =
+# (
+#     { address="192.168.1.10", port=3306, hostgroup=0 },  # 主库
+#     { address="192.168.1.11", port=3306, hostgroup=1 },  # 从库 1
+#     { address="192.168.1.12", port=3306, hostgroup=1 },  # 从库 2
+# )
+#
+# 方案 B：DNS + read_only 自动检测（推荐）
+# 优势：主从切换后 ProxySQL 自动重新分组，无需修改配置
+mysql_servers =
+(
+    # 所有节点初始都在 hostgroup=0
+    # ProxySQL 会根据 read_only 变量自动分组
+    {
+        address="mysql-node1.internal"  # DNS 域名
+        port=3306
+        hostgroup=0
+        max_connections=100
+        weight=1
+    },
+    {
+        address="mysql-node2.internal"
+        port=3306
+        hostgroup=0
+        max_connections=100
+        weight=1
+    },
+    {
+        address="mysql-node3.internal"
+        port=3306
+        hostgroup=0
+        max_connections=100
+        weight=1
+    }
+)
+
+# 定义用户
+mysql_users =
+(
+    {
+        username = "root"
+        password = "root123"
+        default_hostgroup = 0
+        max_connections = 200
+        active = 1
+    }
+)
+
+# 定义查询路由规则
+mysql_query_rules =
+(
+    # 规则 1: SELECT FOR UPDATE 走主库
+    {
+        rule_id=1
+        active=1
+        match_pattern="^SELECT.*FOR UPDATE"
+        destination_hostgroup=0
+        apply=1
+    },
+    # 规则 2: SELECT 走从库
+    {
+        rule_id=2
+        active=1
+        match_pattern="^SELECT"
+        destination_hostgroup=1
+        apply=1
+    },
+    # 规则 3: 写操作（INSERT/UPDATE/DELETE）走主库
+    {
+        rule_id=3
+        active=1
+        match_pattern="^(INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP|ALTER|TRUNCATE)"
+        destination_hostgroup=0
+        apply=1
+    }
+)
+
+# 复制组配置（主从自动切换）
+# ProxySQL 会定期检查每个节点的 read_only 变量：
+# - read_only=0 → 主库 → 移到 writer_hostgroup (0)
+# - read_only=1 → 从库 → 移到 reader_hostgroup (1)
+mysql_replication_hostgroups =
+(
+    {
+        writer_hostgroup=0
+        reader_hostgroup=1
+        check_type="read_only"           # 通过 read_only 变量判断主从
+        comment="MySQL 主从自动切换"
+    }
+)

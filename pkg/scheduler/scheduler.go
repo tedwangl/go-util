@@ -213,3 +213,27 @@ func (s *Scheduler) RunOnce(name string) error {
 
 	return nil
 }
+
+// Delay 延迟执行一次任务（非定时，执行后自动移除）
+func (s *Scheduler) Delay(duration time.Duration, name string, job SimpleJob) error {
+	go func() {
+		time.Sleep(duration)
+		start := time.Now()
+		s.logger.Info("delayed job started", "name", name, "delay", duration)
+
+		if err := job(); err != nil {
+			s.logger.Error("delayed job failed", err, "name", name, "duration", time.Since(start))
+		} else {
+			s.logger.Info("delayed job completed", "name", name, "duration", time.Since(start))
+		}
+	}()
+
+	return nil
+}
+
+// Every 周期性执行任务（简化版，自动生成 @every 表达式）
+// 例如: Every(10*time.Second, "task", func() error { ... })
+func (s *Scheduler) Every(interval time.Duration, name string, job SimpleJob) error {
+	spec := fmt.Sprintf("@every %s", interval)
+	return s.AddFunc(spec, name, job)
+}

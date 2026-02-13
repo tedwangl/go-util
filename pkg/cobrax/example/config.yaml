@@ -1,0 +1,15 @@
+# 应用配置
+app-name: "MyAwesomeApp"
+app-port: 9090
+app-debug: true
+
+# 数据库配置
+database:
+  host: "db.example.com"
+  port: 5432
+  name: "production_db"
+
+# 用户配置
+user:
+  default_limit: 20
+  max_age: 120
